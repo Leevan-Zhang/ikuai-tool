@@ -82,4 +82,22 @@ class ikuai():
                 print(e)
         else:
             raise ValueError("Missed cookie, please use login() to get session cookie")
-
+    def create_docker(self,params:dict):
+        '''
+        params = {
+            "name":str,
+            "interface":str,
+            "image":str , #e.g "whyour/qinglong:latest",
+            "memory":int , #e.g unit : B , 128MB = 128*1024*1024=134217728 B,
+            "auto_start":int , #e.g 0 for false , 1 for true,
+            "mounts":str , #e.g  "/s/DockersData/test:/s/DockersData/test",
+            "cmd":str ,
+            "env":str , #e.g  "aa=bb",
+            "ip6addr":"",
+            "ipaddr":str , #e.g "192.168.20.4"
+        }
+        '''
+        func_name = "docker_container"
+        action = "add"
+        param = params
+        return self.actioncall(action,func_name,param)
