@@ -1,88 +1,98 @@
 import requests
+# from requests import Session
 from json import dumps
 import json
 from hashlib import md5
 from base64 import standard_b64encode
-from requests import post
 from requests import exceptions
 import asyncio
+import time
+
 class ikuai():
     def __init__(self,ip,username,password,method="http",verify=False):
         # parameters setting
         self.verify=verify
         self.method = method
         self.host = ip
-        self.username = username
-        # set the pass field
-        self.pas = standard_b64encode(f"salt_11{password}".encode()).decode()
-        # set the passwd field
-        mdfive = md5()
-        mdfive.update(password.encode('UTF-8'))
-        self.passwd = mdfive.hexdigest()
-        # set the default cookie 
-        self.cookie=None
-
-    def login(self): 
-        url = f"{self.method}://{self.host}/Action/login"
-        payload = dumps({
-            "username": self.username,
-            "passwd": self.passwd,
-            "pass": self.pas,
-            "remember_password":"false"
+        self.session = requests.Session()
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
         })
-        self.response = requests.request("POST", url, headers="", data=payload, verify=self.verify)
-        if self.response.status_code==200:
-            sess_key = self.response.headers["Set-Cookie"].split(";")[0]
-            self.cookie =  sess_key+f"; username={self.username}; login=1"
-            return self.response
-        else:
-            print("Login failed ! HTTP CODE : ",self.response.status_code)
-            raise exceptions.HTTPError(self.response)
-    def actioncall(self,action:str,func_name:str,param:dict):
-        if self.cookie:
-            url = f"{self.method}://{self.host}/Action/call"
+        def login():
+            md = md5()
+            md.update(password.encode('UTF-8'))
+            url = f"{self.method}://{self.host}/Action/login"
             payload = dumps({
+                "username": username,
+                "passwd": md.hexdigest(),
+                "pass": standard_b64encode(f"salt_11{password}".encode()).decode(),
+                "remember_password":"true"
+            })
+            print(payload)
+            response = self.session.post(url=url, data=payload, verify=self.verify)
+            if response.status_code==200:
+                cookie = response.headers["Set-Cookie"].split(";")[0]+f"; username={username}; login=1"
+                # 将字符串格式的 Cookie 转换为字典
+                cookies_dict = {}
+                for item in cookie.split(";"):
+                    key, value = item.strip().split("=", 1) # 以第一个等号分割
+                    cookies_dict[key] = value
+                from requests.utils import cookiejar_from_dict
+                # 将字典转换为 RequestsCookieJar 对象
+                cookies_jar = cookiejar_from_dict(cookies_dict)
+
+                # 将 Cookies 设置到 Session 中
+                self.session.cookies=cookies_jar
+                print("Login Successed ! ")
+            else:
+                print("Login failed ! HTTP CODE : ",response.status_code)
+                print(response.text)
+                raise exceptions.HTTPError(response)
+        login()
+
+    def actioncall(self,action:str,func_name:str,param:dict):
+        url = f"{self.method}://{self.host}/Action/call"
+        payload = dumps({
                 "action":action,
                 "func_name":func_name,
                 "param":param
-            })
+                })
+        with self.session.post(url,data=payload,verify=self.verify) as response:
+            if response.status_code == 200:return response
+            else:
+                print(response.text)
+                raise exceptions.HTTPError(response)
 
-            with post(url,headers={"Cookie":self.cookie},data=payload,verify=self.verify) as response:
-                if response.status_code == 200:return response
-                else:
-                    print(response.text)
-                    raise exceptions.HTTPError(response)
-        else:raise ValueError("Missed cookie, please use login() to get session cookie")
     def getsysstat(self):
-        if self.cookie:
-            func_name = "sysstat"
-            action="show"
-            param = {
-                "TYPE": "verinfo,cpu,memory,stream,cputemp",
+        func_name = "sysstat"
+        action="show"
+        param = {
+            "TYPE": "verinfo,cpu,memory,stream,cputemp",
             }
-            response =  self.actioncall(action=action,func_name=func_name,param=param)
-            # print(response.text,response)
-
-            try:
-                volumeresp  = json.loads(response.text)
-                cpuload = volumeresp["Data"]["cpu"][0]
-                memoryused = volumeresp["Data"]["memory"]["used"]
-                connectnum = volumeresp["Data"]["stream"]["connect_num"]
-                download = volumeresp["Data"]["stream"]["download"]
-                upload = volumeresp["Data"]["stream"]["upload"]
-                infos = {
-                    "cpuload":cpuload,
-                    "memoryused":memoryused,
-                    "connectnum":connectnum,
-                    "download":download,
-                    "upload":upload,
-                }
-                return infos
-            except Exception as e:
-                print(e)
-        else:
-            raise ValueError("Missed cookie, please use login() to get session cookie")
+        response =  self.actioncall(action=action,func_name=func_name,param=param)
+        try:
+            volumeresp  = json.loads(response.text)
+            cpuload = volumeresp["Data"]["cpu"][0]
+            memoryused = volumeresp["Data"]["memory"]["used"]
+            connectnum = volumeresp["Data"]["stream"]["connect_num"]
+            download = volumeresp["Data"]["stream"]["download"]
+            upload = volumeresp["Data"]["stream"]["upload"]
+            cputemp = volumeresp["Data"]["cputemp"][0]
+            infos = {
+                "cpuload":cpuload,
+                "cputemp":cputemp,
+                "memoryused":memoryused,
+                "connectnum":connectnum,
+                "download":download,
+                "upload":upload,
+            }
+            return infos
+        except Exception as e:
+            print(e)
     def create_docker(self,params:dict):
+
         '''
         params = {
             "name":str,
@@ -101,3 +111,28 @@ class ikuai():
         action = "add"
         param = params
         return self.actioncall(action,func_name,param)
+    def addsubnet(self,params):
+        
+        self.actioncall(action="edit",func_name="static_rt",param=params)
+    
+    def new_backup(self,path):
+        self.actioncall("create_tmpfile","backup",{})
+        url = f"{self.method}://{self.host}/Action/download?filename=router_config.bak"
+        response = self.session.get(url, verify=self.verify)
+        # 检查请求是否成功
+       
+        if response.status_code == 200:
+            # 生成当前时间戳（格式：YYYYMMDD_HHMMSS）
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            # 生成新的文件名
+            filename = f"{path}\\router_config_{timestamp}.bak"
+            
+            # 将文件保存到本地
+            with open(filename, "wb") as file:
+                file.write(response.content)
+            print(f"文件下载成功！保存为：{filename}")
+        else:
+            print(f"文件下载失败，状态码：{response.status_code}")
+        pass
+            
+
