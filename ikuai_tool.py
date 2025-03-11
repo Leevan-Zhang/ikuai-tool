@@ -9,8 +9,17 @@ import asyncio
 import time
 
 class ikuai():
-    def __init__(self,ip,username,password,method="http",verify=False):
+    def __init__(self,ip:str,username:str,password:str,method="http",verify=False):
         # parameters setting
+        '''
+        ip:str
+        username:str
+        password:str
+        method="http" or "https"
+        verify:bool
+        '''
+
+
         self.verify=verify
         self.method = method
         self.host = ip
@@ -91,6 +100,7 @@ class ikuai():
             return infos
         except Exception as e:
             print(e)
+
     def create_docker(self,params:dict):
 
         '''
